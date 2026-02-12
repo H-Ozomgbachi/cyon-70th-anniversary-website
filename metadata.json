@@ -1,0 +1,8 @@
+{
+  "name": "SS. Peter & Paul 70th Anniversary",
+  "description": "A celebratory web application for the 70th Anniversary of SS. Peter and Paul Catholic Church, Shomolu. Features event updates and a custom WhatsApp profile picture generator.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
