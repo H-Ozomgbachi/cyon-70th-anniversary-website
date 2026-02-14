@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Upload, Download, RotateCcw, Image as ImageIcon, ZoomIn, Move } from 'lucide-react';
+import { Upload, Download, RotateCcw, Image as ImageIcon, ZoomIn, Move, Type } from 'lucide-react';
 import { PARISH_LOGO_URL } from '../constants';
 
 const CANVAS_SIZE = 1080;
@@ -12,6 +12,10 @@ export const DPGenerator: React.FC = () => {
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [name, setName] = useState<string>('');
+  const [namePosition, setNamePosition] = useState<{ x: number; y: number }>({ x: 80, y: 90 });
+  const [nameSize, setNameSize] = useState<number>(40);
+  const [dragTarget, setDragTarget] = useState<'image' | 'name' | null>(null);
 
   useEffect(() => {
     const img = new Image();
@@ -141,29 +145,118 @@ export const DPGenerator: React.FC = () => {
     ctx.shadowColor = 'rgba(0,0,0,0)'; // Remove shadow for small text
     ctx.fillText("Celebrating 70 Years of Faith & Service", textX, CANVAS_SIZE - 35);
 
-  }, [image, scale, position, logoImg]);
+    // 6. Draggable Name Label (top-left default)
+    if (name.trim()) {
+      ctx.save();
+      const nameText = name.trim().toUpperCase();
+      ctx.font = `bold ${nameSize}px "Playfair Display"`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      // Background pill for legibility
+      const metrics = ctx.measureText(nameText);
+      const padX = 20;
+      const padY = 12;
+      const textHeight = Math.round(nameSize * 1.1); // scale with font size
+      const bgX = namePosition.x - padX;
+      const bgY = namePosition.y - padY;
+      const bgW = metrics.width + padX * 2;
+      const bgH = textHeight + padY * 2;
+
+      ctx.fillStyle = 'rgba(62, 39, 19, 0.55)';
+      const radius = 14;
+      ctx.beginPath();
+      ctx.moveTo(bgX + radius, bgY);
+      ctx.lineTo(bgX + bgW - radius, bgY);
+      ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+      ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+      ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+      ctx.lineTo(bgX + radius, bgY + bgH);
+      ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+      ctx.lineTo(bgX, bgY + radius);
+      ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Text
+      ctx.fillStyle = '#FFFFFF';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+      ctx.fillText(nameText, namePosition.x, namePosition.y);
+      ctx.restore();
+    }
+
+  }, [image, scale, position, logoImg, name, namePosition, nameSize]);
 
   useEffect(() => {
     drawCanvas();
   }, [drawCanvas]);
 
+  // Convert pointer coords to canvas coords
+  const toCanvasCoords = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { cx: 0, cy: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CANVAS_SIZE / rect.width;
+    const scaleY = CANVAS_SIZE / rect.height;
+    return {
+      cx: (e.clientX - rect.left) * scaleX,
+      cy: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  // Hit-test the name label
+  const isOverName = (cx: number, cy: number): boolean => {
+    if (!name.trim()) return false;
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    ctx.font = `bold ${nameSize}px "Playfair Display"`;
+    const metrics = ctx.measureText(name.trim().toUpperCase());
+    const padX = 20, padY = 12, textHeight = Math.round(nameSize * 1.1);
+    const x1 = namePosition.x - padX;
+    const y1 = namePosition.y - padY;
+    const x2 = x1 + metrics.width + padX * 2;
+    const y2 = y1 + textHeight + padY * 2;
+    return cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2;
+  };
+
   // Handle Dragging
   const handlePointerDown = (e: React.PointerEvent) => {
+    const { cx, cy } = toCanvasCoords(e);
+    if (isOverName(cx, cy)) {
+      setDragTarget('name');
+      setDragStart({ x: cx - namePosition.x, y: cy - namePosition.y });
+    } else {
+      setDragTarget('image');
+      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+    }
     setIsDragging(true);
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (isDragging) {
+    if (!isDragging || !dragTarget) return;
+
+    if (dragTarget === 'name') {
+      const { cx, cy } = toCanvasCoords(e);
+      setNamePosition({
+        x: cx - dragStart.x,
+        y: cy - dragStart.y,
+      });
+    } else {
       setPosition({
         x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y
+        y: e.clientY - dragStart.y,
       });
     }
   };
 
   const handlePointerUp = () => {
     setIsDragging(false);
+    setDragTarget(null);
   };
 
   const downloadImage = () => {
@@ -200,6 +293,15 @@ export const DPGenerator: React.FC = () => {
                 <img src={PARISH_LOGO_URL} alt="Logo" className="w-32 h-32 object-contain" />
              </div>
 
+             <input
+                type="text"
+                placeholder="Your name (optional)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full max-w-xs px-4 py-3 rounded-xl border-2 border-parish-gold/30 text-center text-parish-brown font-semibold placeholder:text-parish-brown/40 focus:outline-none focus:border-parish-gold transition"
+                maxLength={30}
+             />
+
              <label className="btn-primary w-full max-w-xs py-4 bg-parish-brown text-white rounded-xl shadow-lg font-bold text-lg flex items-center justify-center gap-3 cursor-pointer transform transition hover:scale-105 active:scale-95">
                 <Upload size={24} />
                 <span>Upload Photo</span>
@@ -212,7 +314,7 @@ export const DPGenerator: React.FC = () => {
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-serif font-bold text-parish-brown">Adjust Your Photo</h2>
                 <button 
-                    onClick={() => { setImage(null); setScale(1); setPosition({x:0,y:0}); }}
+                    onClick={() => { setImage(null); setScale(1); setPosition({x:0,y:0}); setName(''); setNamePosition({ x: 80, y: 90 }); setNameSize(40); setDragTarget(null); }}
                     className="text-sm text-red-500 font-bold flex items-center gap-1"
                 >
                     <RotateCcw size={14} /> Start Over
@@ -238,6 +340,40 @@ export const DPGenerator: React.FC = () => {
                         Drag to move • Pinch to zoom
                     </span>
                 </div>
+            </div>
+
+            {/* Name Input */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-parish-gold/20 space-y-3">
+                <label className="block text-xs text-parish-brown font-bold uppercase tracking-wider">Name (optional) — drag to reposition</label>
+                <input
+                    type="text"
+                    placeholder="Enter your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border-2 border-parish-gold/30 text-parish-brown font-semibold placeholder:text-parish-brown/40 focus:outline-none focus:border-parish-gold transition"
+                    maxLength={30}
+                />
+                {name.trim() && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-parish-brown font-bold uppercase tracking-wider">
+                      <span>Text Size</span>
+                      <span>{nameSize}px</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Type size={14} className="text-gray-400" />
+                      <input
+                        type="range"
+                        min="20"
+                        max="80"
+                        step="1"
+                        value={nameSize}
+                        onChange={(e) => setNameSize(parseInt(e.target.value))}
+                        className="flex-1 accent-parish-brown h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <Type size={22} className="text-parish-brown" />
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* Controls */}
